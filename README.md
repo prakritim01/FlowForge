@@ -1,280 +1,261 @@
-# Distributed Task Queue
+# FlowForge — Distributed Task Queue
 
-A production-style backend infrastructure project that implements a Redis-backed distributed background job queue with FastAPI, worker processes, retries, priority queues, delayed execution, dead-letter handling, status tracking, and live WebSocket monitoring.
+A distributed job execution platform built with **FastAPI**, **Redis**, **Python**, and **Docker Compose**. FlowForge exposes a REST API for submitting and inspecting jobs while independent workers consume jobs from the queue.
 
-This repository is designed as a professional engineering portfolio project. It is intentionally scoped like a simplified Celery/RQ system: small enough to understand in an interview, but complete enough to demonstrate real backend design decisions.
-
-## Why This Project Matters
-
-Most production systems eventually need background processing for slow, unreliable, or asynchronous work: emails, webhooks, report generation, imports, model inference, billing events, and cleanup jobs. A task queue sits at the center of those workflows and has to handle ordering, failures, retries, observability, and operational safety.
-
-This project shows those concerns in a clean Python implementation with Redis as the queueing and state backend.
-
-## Architecture Overview
-
-```text
-Client
-  |
-  | REST / WebSocket
-  v
-FastAPI API  -----> Redis
-  |                 |-- priority lists: high, medium, low
-  |                 |-- delayed sorted set
-  |                 |-- job state records
-  |                 |-- event stream/pubsub
-  v
-Dashboard
-
-Worker processes
-  |
-  | poll Redis priority queues
-  v
-Task executor -> success, retry with backoff, or dead-letter
-```
-
-The API accepts job submissions and stores durable job metadata in Redis. Workers run separately with `python -m app.worker`, consume high-priority jobs before medium and low, update status through the job lifecycle, and publish events used by WebSocket clients and the dashboard.
+> **Project provenance:** FlowForge is an extended fork of an upstream open-source project. Preserve the upstream license and attribution, and document your own changes separately. Do not describe inherited functionality as newly implemented.
 
 ## Features
 
-- REST API for job submission, job lookup, recent jobs, queue stats, and health checks.
-- Redis-backed priority queues: `high`, `medium`, and `low`.
-- Delayed execution using a Redis sorted set.
-- Worker process with configurable concurrency.
-- Retry handling with exponential backoff.
-- Dead-letter queue for permanently failed jobs.
-- Job lifecycle states: `queued`, `delayed`, `running`, `succeeded`, `failed`, `retrying`, `dead`.
-- Rich job metadata including timestamps, attempts, payload, priority, and error messages.
-- WebSocket endpoint for live job updates.
-- Browser dashboard at `/dashboard`.
-- Structured JSON logging with `structlog`.
-- Docker and Docker Compose setup.
-- Pytest suite using isolated fake Redis.
-- GitHub Actions CI for linting and tests.
+- REST API for creating and inspecting jobs
+- Priority-based job processing (`high`, `medium`, `low`)
+- FIFO ordering within the same priority
+- Delayed job scheduling
+- Retry handling with exponential backoff
+- Dead-letter handling when retries are exhausted
+- Configurable worker concurrency
+- Queue statistics and health endpoints
+- Interactive API documentation through Swagger UI
+- Docker Compose setup for the API, Redis, and worker
+- Automated tests for API, queue ordering, delayed jobs, retries, and worker behavior
+
+## Architecture
+
+```text
+                  ┌──────────────────────┐
+                  │       Client         │
+                  │   Swagger / HTTP     │
+                  └──────────┬───────────┘
+                             │ REST
+                             ▼
+                  ┌──────────────────────┐
+                  │    FastAPI service   │
+                  │   POST /jobs         │
+                  │   GET  /jobs         │
+                  │   GET  /jobs/{id}    │
+                  │   GET  /queues/stats │
+                  │   GET  /health       │
+                  └──────────┬───────────┘
+                             │
+                             ▼
+                  ┌──────────────────────┐
+                  │        Redis         │
+                  │ queue / job state    │
+                  └──────────┬───────────┘
+                             │
+                             ▼
+                  ┌──────────────────────┐
+                  │   Worker processes   │
+                  │ consume and execute  │
+                  │ jobs / retry failures│
+                  └──────────────────────┘
+```
+
+The API and worker run as separate services. Redis provides shared queue/state storage. Exact delivery guarantees and persistence behavior depend on the implementation and Redis configuration.
 
 ## Tech Stack
 
-- Python 3.11+
-- FastAPI
-- Redis
-- WebSockets
-- Docker / Docker Compose
-- Pydantic v2
-- Pytest
-- Fakeredis
-- Ruff
-- Structlog
+- **Python 3.11**
+- **FastAPI** and **Uvicorn**
+- **Redis 7**
+- **Docker Compose**
+- **Pytest** for automated tests
 
-## Folder Structure
+## Getting Started
 
-```text
-distributed-task-queue/
-  app/
-    __init__.py
-    main.py
-    config.py
-    models.py
-    redis_client.py
-    queue.py
-    worker.py
-    events.py
-    dashboard.py
-    logging_config.py
-  tests/
-    conftest.py
-    test_api.py
-    test_queue.py
-    test_worker.py
-    test_retries.py
-    test_priority.py
-  .github/
-    workflows/
-      ci.yml
-  Dockerfile
-  docker-compose.yml
-  pyproject.toml
-  README.md
-  .env.example
-  .gitignore
-```
+### Prerequisites
 
-## Setup
+Install:
+- Docker Desktop with Docker Compose
+- Git
 
-Create a virtual environment and install the project:
+### 1. Clone your fork
+
+Replace the URL if you renamed the repository on GitHub.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e ".[dev]"
-cp .env.example .env
+git clone https://github.com/prakritim01/distributed-task-queue.git
+cd distributed-task-queue
 ```
 
-Start Redis locally:
-
-```bash
-docker run --rm -p 6379:6379 redis:7-alpine
-```
-
-Run the API:
-
-```bash
-uvicorn app.main:app --reload
-```
-
-Run a worker in another terminal:
-
-```bash
-python -m app.worker
-```
-
-## Docker Setup
-
-Run the full stack:
+### 2. Start the services
 
 ```bash
 docker compose up --build
 ```
 
-Services:
+Keep this terminal open while using the application.
 
-- API: `http://localhost:8000`
-- Dashboard: `http://localhost:8000/dashboard`
-- Redis: `localhost:6379`
-- Worker: separate Compose service running `python -m app.worker`
+### 3. Open the API documentation
 
-## API Examples
+Visit:
 
-Submit a job:
+- Swagger UI: <http://localhost:8000/docs>
+- OpenAPI schema: <http://localhost:8000/openapi.json>
+- Health endpoint: <http://localhost:8000/health>
+- Dashboard endpoint: <http://localhost:8000/dashboard>
 
-```bash
-curl -X POST http://localhost:8000/jobs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task_name": "send_email",
-    "payload": {
-      "to": "user@example.com",
-      "subject": "Welcome"
-    },
-    "priority": "high",
-    "delay_seconds": 0,
-    "max_retries": 3
-  }'
-```
+The dashboard endpoint may return API data rather than a standalone web UI, depending on the implementation.
 
-Submit a delayed job:
+### 4. Stop the services
+
+Press `Ctrl+C`, then run:
 
 ```bash
-curl -X POST http://localhost:8000/jobs \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task_name": "generate_report",
-    "payload": {"report_id": "rpt_123"},
-    "priority": "medium",
-    "delay_seconds": 30,
-    "max_retries": 2
-  }'
+docker compose down
 ```
 
-Get job status:
+To remove containers and the default Compose network while keeping named volumes, use the command above. To also remove Compose-managed volumes, run `docker compose down -v` (this can delete stored data).
 
-```bash
-curl http://localhost:8000/jobs/<job_id>
+## Example: Create a Job
+
+In Swagger UI, expand **POST `/jobs`**, select **Try it out**, and submit:
+
+```json
+{
+  "task_name": "send_email",
+  "payload": {
+    "to": "prakriti@example.com",
+    "subject": "Queue test",
+    "message": "Hello from FlowForge!"
+  },
+  "priority": "high",
+  "delay_seconds": 0,
+  "max_retries": 3
+}
 ```
 
-List recent jobs:
+This example submits a sample task to the queue. It does **not** imply that a real email will be sent unless an email handler has been implemented and configured.
 
-```bash
-curl http://localhost:8000/jobs
+A successful response looks like:
+
+```json
+{
+  "job_id": "generated-job-id",
+  "status": "queued"
+}
 ```
 
-Queue statistics:
+Copy the returned `job_id` and use **GET `/jobs/{job_id}`** to inspect the job.
 
-```bash
-curl http://localhost:8000/queues/stats
-```
+## API Endpoints
 
-Health check:
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `POST` | `/jobs` | Submit a new job |
+| `GET` | `/jobs` | List jobs |
+| `GET` | `/jobs/{job_id}` | Retrieve a job's status/details |
+| `GET` | `/queues/stats` | Inspect queue statistics |
+| `GET` | `/health` | Health check |
+| `GET` | `/dashboard` | Dashboard-related endpoint |
 
-```bash
-curl http://localhost:8000/health
-```
-
-## Worker Behavior
-
-Workers poll Redis queues in strict priority order:
-
-1. `high`
-2. `medium`
-3. `low`
-
-Before execution, a job is marked `running` and its attempt count is incremented. The included `SimulatedTaskExecutor` is intentionally deterministic and testable:
-
-- Normal jobs succeed.
-- Jobs with `task_name: "always_fail"` fail.
-- Jobs with payload `{"fail": true}` fail.
-- Jobs with payload `{"fail_until_attempt": 1}` fail once, then succeed.
-
-This makes retry, backoff, and dead-letter behavior easy to validate without external services.
-
-## Retries and Dead-Letter Queue
-
-When a job fails and attempts remain, it is marked `retrying` and placed into the delayed sorted set using exponential backoff:
-
-```text
-delay = RETRY_BACKOFF_BASE_SECONDS * 2^(attempts - 1)
-```
-
-When retries are exhausted, the job is marked `dead` and its ID is pushed into the Redis dead-letter list. The final error message is retained in the job metadata.
-
-## WebSocket and Dashboard
-
-Live updates are published to Redis Pub/Sub and retained in a short Redis event list.
-
-- WebSocket endpoint: `ws://localhost:8000/ws/jobs`
-- Dashboard: `http://localhost:8000/dashboard`
-
-The dashboard shows total jobs, queued jobs, running jobs, succeeded jobs, failed/retrying jobs, dead-letter jobs, and recent job events.
+Use `/docs` as the source of truth for request fields, response schemas, and validation behavior.
 
 ## Testing
 
-Run the test suite:
+The project test suite was run successfully in the development container:
 
-```bash
-pytest
+```text
+17 passed in 0.83s
 ```
 
-Run linting:
+The tests covered:
+- Job creation, status retrieval, listing, queue statistics, and health endpoint
+- Priority ordering and FIFO ordering within a priority
+- Delayed jobs and promotion when due
+- Retry scheduling and exponential backoff
+- Dead-letter behavior after retries are exhausted
+- Worker success and failure paths
+
+### Run tests
+
+If the test dependencies are installed in the active container, run:
 
 ```bash
-ruff check .
+docker compose exec api python -m pytest tests -v
 ```
 
-The tests use `fakeredis`, so they do not require a running Redis instance.
+If Pytest or test dependencies are missing after rebuilding, add the project's development/test dependencies to its dependency configuration and rebuild the image. Installing packages into a running container is temporary and may not persist after recreation.
 
 ## Configuration
 
-Configuration is environment-driven. See `.env.example`:
+The current Compose setup uses the following environment variables:
+
+| Variable | Purpose |
+|---|---|
+| `REDIS_URL` | Redis connection URL (Compose default: `redis://redis:6379/0`) |
+| `LOG_LEVEL` | API logging level |
+| `WORKER_CONCURRENCY` | Worker concurrency setting (Compose default: `4`) |
+
+Review `docker-compose.yml` and the application settings for the complete list of supported options.
+
+## Development Workflow
 
 ```bash
-REDIS_URL=redis://localhost:6379/0
-WORKER_CONCURRENCY=4
-WORKER_POLL_INTERVAL_SECONDS=0.5
-RETRY_BACKOFF_BASE_SECONDS=2
-RECENT_JOBS_LIMIT=100
-EVENT_STREAM_LIMIT=200
-LOG_LEVEL=INFO
+# Start services
+docker compose up --build
+
+# Run tests
+docker compose exec api python -m pytest tests -v
+
+# View service status
+docker compose ps
+
+# View logs
+docker compose logs -f api worker redis
+
+# Stop services
+docker compose down
 ```
 
-## Future Improvements
+## Reliability Concepts Demonstrated
 
-- Add task registration with typed task handlers.
-- Add worker heartbeats and worker registry.
-- Add scheduled recurring jobs.
-- Add Redis Streams support for stronger delivery semantics.
-- Add OpenTelemetry tracing and Prometheus metrics.
-- Add authentication and tenant-aware job isolation.
-- Add a richer dashboard with filtering and replay controls.
+- Priority scheduling
+- FIFO ordering within equal priorities
+- Delayed execution
+- Retry policies and backoff
+- Dead-letter handling
+- API/worker separation
+- Containerized local development
+- Automated testing
 
-## Portfolio Note
+These are implementation-level capabilities, not a claim of production certification. Before using the system in production, review authentication, authorization, rate limiting, input limits, Redis persistence, job idempotency, graceful shutdown, monitoring, and delivery guarantees.
 
-This is a portfolio backend infrastructure project. It focuses on clear architecture, operational behavior, testability, and interview-ready code rather than artificial scale or unnecessary framework complexity.
+## Roadmap
 
+Potential future extensions (not claimed as implemented):
+- Persistent PostgreSQL job history
+- Job cancellation and timeout handling
+- A React dashboard with live updates
+- Prometheus metrics and Grafana dashboards
+- Authentication, authorization, and rate limiting
+- GitHub Actions CI
+- Load testing and throughput benchmarks
+
+## Attribution and License
+
+This repository is based on an upstream open-source project. Keep the original license and copyright notices, and add a clear upstream link here before publishing this README.
+
+- **Upstream repository:** https://github.com/noureddine-py/distributed-task-queue
+- **Your fork:** https://github.com/prakritim01/FlowForge
+Document your own modifications in a separate section, for example:
+
+- Added: `LIST_ONLY_FEATURES_YOU_IMPLEMENTED`
+- Changed: `LIST_ONLY_BEHAVIOR_YOU_CHANGED`
+- Tests added: `LIST_ONLY_TESTS_YOU_AUTHORED`
+
+Do not remove required license notices. If the upstream project uses a license that requires preserving attribution or source disclosures, follow those terms.
+
+## Screenshots
+
+Add screenshots after capturing the running application:
+
+- Swagger UI at `/docs`
+- A successful `POST /jobs` response
+- Job status from `GET /jobs/{job_id}`
+- Queue statistics from `/queues/stats`
+
+Suggested location: `docs/images/`.
+
+---
+
+**Status:** Local Docker Compose startup and the existing 17-test suite have been verified in the development environment. Feature claims above reflect the behavior tested so far; verify any additional behavior before advertising it.

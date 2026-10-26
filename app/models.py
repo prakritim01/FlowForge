@@ -17,6 +17,7 @@ class Priority(StrEnum):
 PRIORITY_ORDER = (Priority.HIGH, Priority.MEDIUM, Priority.LOW)
 
 
+
 class JobStatus(StrEnum):
     QUEUED = "queued"
     DELAYED = "delayed"
@@ -25,6 +26,7 @@ class JobStatus(StrEnum):
     FAILED = "failed"
     RETRYING = "retrying"
     DEAD = "dead"
+    CANCELLED = "cancelled"
 
 
 def utc_now() -> datetime:
